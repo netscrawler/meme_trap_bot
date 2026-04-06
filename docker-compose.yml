@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    container_name: meme_trap_bot
+    env_file:
+      - .env
+    volumes:
+      - $PWD/db/:/app/data
+    restart: unless-stopped
+    network_mode: host
