@@ -12,7 +12,7 @@ import (
 )
 
 type PhotoProvider interface {
-	GetRandom(ctx context.Context) (domain.Image, error)
+	GetRandom(ctx context.Context) ([]domain.Image, error)
 }
 
 type ChatHandler struct {
@@ -33,17 +33,21 @@ func (ch *ChatHandler) HandleInlineQuery(ctx *th.Context, query telego.InlineQue
 		return err
 	}
 
+	var res []telego.InlineQueryResult
+
+	for _, ph := range photo {
+		res = append(res, &telego.InlineQueryResultCachedPhoto{
+			Type:        "photo",
+			ID:          rndID(),
+			PhotoFileID: ph.FileID,
+			Caption:     fmt.Sprintf("Добавил: @%s", ph.AddedBy),
+		})
+	}
+
 	err = ctx.Bot().AnswerInlineQuery(ctx.Context(), &telego.AnswerInlineQueryParams{
 		InlineQueryID: query.ID,
-		Results: []telego.InlineQueryResult{
-			&telego.InlineQueryResultCachedPhoto{
-				Type:        "photo",
-				ID:          rndID(),
-				PhotoFileID: photo.FileID,
-				Caption:     fmt.Sprintf("Добавил: @%s", photo.AddedBy),
-			},
-		},
-		CacheTime: 0,
+		Results:       res,
+		CacheTime:     0,
 	})
 	if err != nil {
 		return err

@@ -39,7 +39,7 @@ func (r *MediaFilesRepository) Save(ctx context.Context, imgs []domain.Image) er
 	return BulkInsertImages(r.db, dtos)
 }
 
-func (r *MediaFilesRepository) GetRandom(ctx context.Context) (domain.Image, error) {
+func (r *MediaFilesRepository) GetRandom(ctx context.Context) ([]domain.Image, error) {
 	queryFast := `
 		SELECT
 			id,
@@ -55,25 +55,37 @@ func (r *MediaFilesRepository) GetRandom(ctx context.Context) (domain.Image, err
 		WHERE id >= (
 			ABS(RANDOM()) % (SELECT MAX(id) FROM images)
 		)
-		LIMIT 1
+		LIMIT 10
 	`
 
-	var img Image
+	rows, err := r.db.QueryContext(ctx, queryFast)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-	err := r.db.QueryRowContext(ctx, queryFast).Scan(
-		&img.ID,
-		&img.FileID,
-		&img.FileUniqueID,
-		&img.FileSize,
-		&img.Width,
-		&img.Height,
-		&img.CreatedAt,
-		&img.AddedBy,
-		&img.AddedByID,
-	)
+	var imgs []domain.Image
 
-	if err == sql.ErrNoRows {
-		err = r.db.QueryRowContext(ctx, `
+	for rows.Next() {
+		var img Image
+		if err := rows.Scan(
+			&img.ID,
+			&img.FileID,
+			&img.FileUniqueID,
+			&img.FileSize,
+			&img.Width,
+			&img.Height,
+			&img.CreatedAt,
+			&img.AddedBy,
+			&img.AddedByID,
+		); err != nil {
+			return nil, err
+		}
+		imgs = append(imgs, NewImageFromDTO(img))
+	}
+
+	if len(imgs) == 0 {
+		rowsFallback, err := r.db.QueryContext(ctx, `
 			SELECT
 				id,
 				file_id,
@@ -86,25 +98,33 @@ func (r *MediaFilesRepository) GetRandom(ctx context.Context) (domain.Image, err
 				added_by_id
 			FROM images
 			ORDER BY RANDOM()
-			LIMIT 1
-		`).Scan(
-			&img.ID,
-			&img.FileID,
-			&img.FileUniqueID,
-			&img.FileSize,
-			&img.Width,
-			&img.Height,
-			&img.CreatedAt,
-			&img.AddedBy,
-			&img.AddedByID,
-		)
+			LIMIT 10
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rowsFallback.Close()
+
+		for rowsFallback.Next() {
+			var img Image
+			if err := rowsFallback.Scan(
+				&img.ID,
+				&img.FileID,
+				&img.FileUniqueID,
+				&img.FileSize,
+				&img.Width,
+				&img.Height,
+				&img.CreatedAt,
+				&img.AddedBy,
+				&img.AddedByID,
+			); err != nil {
+				return nil, err
+			}
+			imgs = append(imgs, NewImageFromDTO(img))
+		}
 	}
 
-	if err != nil {
-		return domain.Image{}, err
-	}
-
-	return NewImageFromDTO(img), nil
+	return imgs, nil
 }
 
 func BulkInsertImages(db *sql.DB, images []Image) error {
@@ -168,6 +188,7 @@ func insertBatch(db *sql.DB, images []Image) error {
 
 	return tx.Commit()
 }
+
 func nullInt64ToInterface(v sql.NullInt64) any {
 	if v.Valid {
 		return v.Int64
